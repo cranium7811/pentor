@@ -117,4 +117,29 @@ contract ContractTest is DSTest, stdCheats {
         assertEq(ERC20(wethAddress).balanceOf(address(pentor)), pentorWeth);
         assertEq(ERC20(wethAddress).balanceOf(address(0xBEEF)), 0);
     }
+
+    function testRejectOffer() public {
+        mock1.mint(address(this), 1);
+        mock1.approve(address(pentor), 1);
+        pentor.swap721(1, address(mock1));
+
+        uint256 pentorWeth = ERC20(wethAddress).balanceOf(address(pentor));
+        uint256 thisWeth = ERC20(wethAddress).balanceOf(address(this));
+
+        vm.startPrank(address(0xBEEF));
+        mock2.mint(address(0xBEEF), 1);
+        weth.approve(address(pentor), 1e18);
+        mock2.approve(address(pentor), 1);
+        tip(address(wethAddress), address(0xBEEF), 1e18);
+        pentor.offerToSwap(1, 1, address(mock2), address(weth), 1e18);
+        vm.stopPrank();
+
+        pentor.rejectOffer(1);
+
+        assertEq(mock1.ownerOf(1), address(pentor));
+        assertEq(mock2.ownerOf(1), address(0xBEEF));
+        assertEq(ERC20(wethAddress).balanceOf(address(this)), thisWeth);
+        assertEq(ERC20(wethAddress).balanceOf(address(pentor)), pentorWeth);
+        assertEq(ERC20(wethAddress).balanceOf(address(0xBEEF)), 1e18);
+    }
 }

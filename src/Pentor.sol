@@ -97,6 +97,9 @@ contract Pentor is ERC721TokenReceiver {
         Offer storage offerDetail = offerToken[offerId];
 
         ERC721(offerDetail.collectionAddress).safeTransferFrom(address(this), offerDetail.tokenOwner, offerDetail.tokenId);
+
+        ERC20(offerDetail.amountAddress).transferFrom(address(this), offerDetail.tokenOwner, offerDetail.offerAmount);
+
     }
 
     function onERC721Received(
