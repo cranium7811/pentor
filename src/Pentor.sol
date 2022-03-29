@@ -4,39 +4,41 @@ pragma solidity 0.8.13;
 import "solmate/tokens/ERC721.sol";
 import "solmate/tokens/ERC20.sol";
 
+struct Swap {
+    address collectionAddress;
+    address tokenOwner;
+    uint256 tokenId;
+}
+
+struct Offer {
+    uint256 swapId;
+    uint112 offerAmount;
+    uint256 tokenId;
+    address collectionAddress;
+    address amountAddress;
+    address tokenOwner;
+}
+
 contract Pentor is ERC721TokenReceiver {
 
-    struct SwapDetails {
-        address collectionAddress;
-        address tokenOwner;
-        uint256 tokenId;
-        uint8 createdOrOffered; // 1 - created, 2 - offered
-        uint112 offerAmount;
-        address amountAddress;
-    }
-
     uint256 internal swapCounter = 1;
+    uint256 internal offerCounter = 1;
 
-    mapping(uint256 => SwapDetails) public swapToken;
-    mapping(uint256 => SwapDetails) public offerToken;
-
-    event Transfer1();
+    mapping(uint256 => Swap) public swapToken;
+    mapping(uint256 => Offer) public offerToken;
 
     function swap721(uint256 tokenId, address collectionAddress) public {
         require(msg.sender == ERC721(collectionAddress).ownerOf(tokenId), "NOT_OWNER");
 
-        SwapDetails memory swapDetail;
+        Swap memory swapDetail;
 
         swapDetail.collectionAddress = collectionAddress;
         swapDetail.tokenId = tokenId;
         swapDetail.tokenOwner = msg.sender;
-        swapDetail.createdOrOffered = 1;
 
         swapToken[swapCounter] = swapDetail;
 
         ERC721(collectionAddress).safeTransferFrom(msg.sender, address(this), tokenId);
-
-        emit Transfer1();
 
         ++ swapCounter;
     }
@@ -48,15 +50,15 @@ contract Pentor is ERC721TokenReceiver {
         address amountAddress,
         uint112 amount
     ) public {
-        require(swapToken[swapId].createdOrOffered == 1, "SWAP_NOT_CREATED");
+        require(swapToken[swapId].collectionAddress != address(0), "NOT_AVAILABLE");
         require(msg.sender == ERC721(collectionAddress).ownerOf(tokenId), "NOT_OWNER");
 
-        SwapDetails memory offerDetail;
+        Offer memory offerDetail;
 
+        offerDetail.swapId = swapId;
         offerDetail.collectionAddress = collectionAddress;
         offerDetail.tokenId = tokenId;
         offerDetail.tokenOwner = msg.sender;
-        offerDetail.createdOrOffered = 2;
 
         if(amount == 0 && amountAddress == address(0)) {
             offerDetail.offerAmount = 0;
@@ -66,36 +68,35 @@ contract Pentor is ERC721TokenReceiver {
         offerDetail.offerAmount = amount;
         offerDetail.amountAddress = amountAddress;
 
-        offerToken[swapId] = offerDetail;
+        offerToken[offerCounter] = offerDetail;
 
         ERC721(collectionAddress).safeTransferFrom(msg.sender, address(this), tokenId);
-        ERC20(amountAddress).transferFrom(msg.sender, address(amountAddress), amount);
+        ERC20(amountAddress).transferFrom(msg.sender, address(this), amount);
+
+        ++offerCounter;
     }
 
     function acceptOffer(uint256 swapId, uint256 offerId) public {
         require(msg.sender == swapToken[swapId].tokenOwner, "NOT_SWAP_OWNER");
-        require(swapToken[swapId].createdOrOffered == 1, "NOT_CREATED");
-        require(offerToken[offerId].createdOrOffered == 2, "NOT_AN_OFFER");
+        require(offerToken[offerId].swapId == swapId, "NOT_AN_OFFER");
 
-        SwapDetails storage swapDetail = swapToken[swapId];
-        SwapDetails storage offerDetail = offerToken[offerId];
+        Swap storage swapDetail = swapToken[swapId];
+        Offer storage offerDetail = offerToken[offerId];
 
-        ERC721(swapDetail.collectionAddress).safeTransferFrom(address(this), offerDetail.tokenOwner, swapDetail.tokenId);
-        ERC721(offerDetail.collectionAddress).safeTransferFrom(address(this), swapDetail.tokenOwner, offerDetail.tokenId);
+        ERC721(swapDetail.collectionAddress).transferFrom(address(this), offerDetail.tokenOwner, swapDetail.tokenId);
+        ERC721(offerDetail.collectionAddress).transferFrom(address(this), swapDetail.tokenOwner, offerDetail.tokenId);
 
         ERC20(offerDetail.amountAddress).transferFrom(address(this), swapDetail.tokenOwner, offerDetail.offerAmount);
     }
 
-    function rejectOffer(uint256 swapId, uint256 offerId) public {
-        require(msg.sender == swapToken[swapId].tokenOwner, "NOT_SWAP_OWNER");
-        require(swapToken[swapId].createdOrOffered == 1, "NOT_CREATED");
-        require(offerToken[offerId].createdOrOffered == 2, "NOT_AN_OFFER");
+    function rejectOffer(uint256 offerId) public {
+        uint256 swapId = offerToken[offerId].swapId;
 
-        SwapDetails storage offerDetail = offerToken[offerId];
+        require(msg.sender == swapToken[swapId].tokenOwner, "NOT_OWNER");
+
+        Offer storage offerDetail = offerToken[offerId];
 
         ERC721(offerDetail.collectionAddress).safeTransferFrom(address(this), offerDetail.tokenOwner, offerDetail.tokenId);
-
-        offerDetail.createdOrOffered = 0;
     }
 
     function onERC721Received(
@@ -104,6 +105,6 @@ contract Pentor is ERC721TokenReceiver {
         uint256,
         bytes calldata
     ) external pure returns (bytes4) {
-        return 0x150b7a02;
+        return this.onERC721Received.selector;
     }
 }
